@@ -1,0 +1,4 @@
+.idea
+flyway.conf
+/bin/*
+/sh/*
