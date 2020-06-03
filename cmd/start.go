@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	config "github.com/stetsd/monk-conf"
+	"github.com/stetsd/monk-scheduler/internal/app"
 )
 
 var startCmd = &cobra.Command{
@@ -9,14 +11,14 @@ var startCmd = &cobra.Command{
 	Short: "start http server",
 	Long:  `start http server`,
 	Run: func(cmd *cobra.Command, args []string) {
-		//conf, err := config.EnvParseToConfigMap()
-		//
-		//if err != nil {
-		//	panic(err)
-		//}
+		conf, err := config.EnvParseToConfigMap()
 
-		//server := app.NewServer(conf)
-		//server.Start()
+		if err != nil {
+			panic(err)
+		}
+
+		server := app.NewApp(conf)
+		server.Start()
 	},
 }
 

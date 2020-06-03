@@ -11,6 +11,7 @@ Required env
 
 Required soft
 - [flyway](https://flywaydb.org/documentation/commandline/#download-and-installation)
+- [protoc](https://grpc.io/docs/languages/go/quickstart/)
 
 ```
 #!/bin/bash

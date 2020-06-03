@@ -2,3 +2,4 @@
 flyway.conf
 /bin/*
 /sh/*
+*.pb.go
