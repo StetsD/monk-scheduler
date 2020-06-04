@@ -2,20 +2,22 @@ package grpcServer
 
 import (
 	"context"
-	"fmt"
 	"github.com/stetsd/monk-scheduler/internal/api"
 	"google.golang.org/grpc"
 	"net"
 )
 
 type ApiServer struct {
-	server *grpc.Server
+	server      *grpc.Server
+	GrpcEmitter *GrpcEmitter
 }
 
-func NewGrpcServer() (*ApiServer, error) {
+func NewGrpcServer(grpcEmitter *GrpcEmitter) (*ApiServer, error) {
 	// TODO: check localhost
 	tcpConn, err := net.Listen("tcp", "0.0.0.0:50051")
-	apiServer := ApiServer{}
+	apiServer := ApiServer{
+		GrpcEmitter: grpcEmitter,
+	}
 
 	if err != nil {
 		return nil, err
@@ -29,10 +31,23 @@ func NewGrpcServer() (*ApiServer, error) {
 }
 
 func (s ApiServer) SendEvent(ctx context.Context, event *api.Event) (*api.EventResult, error) {
-
-	fmt.Println(event)
+	s.GrpcEmitter.emitOnEventMsg(event)
 
 	return &api.EventResult{
 		EventId: 1,
 	}, nil
+}
+
+type GrpcEmitter struct {
+	OnEventMsgCbQueue []func(event *api.Event)
+}
+
+func (s *GrpcEmitter) emitOnEventMsg(event *api.Event) {
+	for _, cb := range s.OnEventMsgCbQueue {
+		cb(event)
+	}
+}
+
+func (s *GrpcEmitter) OnEventMsg(cb func(event *api.Event)) {
+	s.OnEventMsgCbQueue = append(s.OnEventMsgCbQueue, cb)
 }
