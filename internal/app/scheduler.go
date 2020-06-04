@@ -28,11 +28,12 @@ func (scheduler *Scheduler) Start() {
 	}
 	scheduler.db = dbDriver
 
-	grpcEmitter := grpcServer.GrpcEmitter{OnEventMsgCbQueue: []func(event *api.Event){
-		func(event *api.Event) {
-			scheduler.CreateEvent(event)
+	grpcEmitter := grpcServer.GrpcEmitter{
+		OnEventMsgHandler: func(event *api.Event) (int, error) {
+			id, err := scheduler.CreateEvent(event)
+			return id, err
 		},
-	}}
+	}
 
 	apiServer, err := grpcServer.NewGrpcServer(&grpcEmitter)
 
@@ -43,7 +44,7 @@ func (scheduler *Scheduler) Start() {
 	scheduler.apiServer = apiServer
 }
 
-func (scheduler *Scheduler) CreateEvent(event *api.Event) {
+func (scheduler *Scheduler) CreateEvent(event *api.Event) (int, error) {
 	utc, _ := time.LoadLocation("UTC")
 	rows, err := scheduler.db.Query(`
 		INSERT INTO "Event" (title, dateStart, dateEnd, description, userId)
@@ -58,6 +59,22 @@ func (scheduler *Scheduler) CreateEvent(event *api.Event) {
 	if err != nil {
 		logger.Log.Error(err.Error())
 	}
+
+	defer func() {
+		if err := rows.Close(); err != nil {
+			logger.Log.Error(err.Error())
+		}
+	}()
+
+	var id int
+
+	for rows.Next() {
+		if err := rows.Scan(&id); err != nil {
+			logger.Log.Error(err.Error())
+		}
+	}
+
+	return id, nil
 }
 
 func (scheduler *Scheduler) Stop() {

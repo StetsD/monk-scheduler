@@ -31,23 +31,20 @@ func NewGrpcServer(grpcEmitter *GrpcEmitter) (*ApiServer, error) {
 }
 
 func (s ApiServer) SendEvent(ctx context.Context, event *api.Event) (*api.EventResult, error) {
-	s.GrpcEmitter.emitOnEventMsg(event)
+	id, err := s.GrpcEmitter.OnEventMsgHandler(event)
+
+	if err != nil {
+		return &api.EventResult{
+			Status:     1,
+			StatusText: err.Error(),
+		}, err
+	}
 
 	return &api.EventResult{
-		EventId: 1,
+		EventId: int64(id),
 	}, nil
 }
 
 type GrpcEmitter struct {
-	OnEventMsgCbQueue []func(event *api.Event)
-}
-
-func (s *GrpcEmitter) emitOnEventMsg(event *api.Event) {
-	for _, cb := range s.OnEventMsgCbQueue {
-		cb(event)
-	}
-}
-
-func (s *GrpcEmitter) OnEventMsg(cb func(event *api.Event)) {
-	s.OnEventMsgCbQueue = append(s.OnEventMsgCbQueue, cb)
+	OnEventMsgHandler func(event *api.Event) (int, error)
 }
