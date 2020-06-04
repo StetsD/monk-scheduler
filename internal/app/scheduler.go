@@ -3,18 +3,19 @@ package app
 import (
 	"fmt"
 	config "github.com/stetsd/monk-conf"
+	monk_db_driver "github.com/stetsd/monk-db-driver"
 	"github.com/stetsd/monk-scheduler/internal/api"
 	"github.com/stetsd/monk-scheduler/internal/app/contracts"
 	"github.com/stetsd/monk-scheduler/internal/infrastructure/grpcServer"
 	"github.com/stetsd/monk-scheduler/internal/infrastructure/logger"
-	monk_db_driver "github.com/stetsd/monk-scheduler/temp"
 	"time"
 )
 
 type Scheduler struct {
-	config    config.Config
-	apiServer *grpcServer.ApiServer
-	db        contracts.PgDriver
+	config      config.Config
+	apiServer   *grpcServer.ApiServer
+	db          contracts.PgDriver
+	eventPicker *EventPicker
 }
 
 func NewApp(config config.Config) *Scheduler {
@@ -27,6 +28,12 @@ func (scheduler *Scheduler) Start() {
 		panic(err)
 	}
 	scheduler.db = dbDriver
+
+	exitChan := make(chan int)
+	onSend := make(chan []onSendMsg)
+	eventPicker := NewEventPicker(&exitChan, &onSend, dbDriver)
+	scheduler.eventPicker = eventPicker
+	scheduler.eventPicker.Start()
 
 	grpcEmitter := grpcServer.GrpcEmitter{
 		OnEventMsgHandler: func(event *api.Event) (int, error) {
@@ -45,14 +52,13 @@ func (scheduler *Scheduler) Start() {
 }
 
 func (scheduler *Scheduler) CreateEvent(event *api.Event) (int, error) {
-	utc, _ := time.LoadLocation("UTC")
 	rows, err := scheduler.db.Query(`
 		INSERT INTO "Event" (title, dateStart, dateEnd, description, userId)
 		VALUES ($1, $2, $3, $4, $5) RETURNING id;
 	`,
 		event.Title,
-		time.Unix(event.DateStart.Seconds, 0).In(utc).Format(time.RFC3339),
-		time.Unix(event.DateEnd.Seconds, 0).In(utc).Format(time.RFC3339),
+		time.Unix(event.DateStart.Seconds, 0).UTC().Format(time.RFC3339),
+		time.Unix(event.DateEnd.Seconds, 0).UTC().Format(time.RFC3339),
 		event.Description, event.UserId,
 	)
 
