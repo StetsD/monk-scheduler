@@ -2,20 +2,26 @@ package app
 
 import (
 	"fmt"
+	"github.com/Shopify/sarama"
 	config "github.com/stetsd/monk-conf"
 	monk_db_driver "github.com/stetsd/monk-db-driver"
 	"github.com/stetsd/monk-scheduler/internal/api"
 	"github.com/stetsd/monk-scheduler/internal/app/contracts"
+	"github.com/stetsd/monk-scheduler/internal/infrastructure"
 	"github.com/stetsd/monk-scheduler/internal/infrastructure/grpcServer"
 	"github.com/stetsd/monk-scheduler/internal/infrastructure/logger"
+	"os"
+	"os/signal"
+	"sync"
 	"time"
 )
 
 type Scheduler struct {
-	config      config.Config
-	apiServer   *grpcServer.ApiServer
-	db          contracts.PgDriver
-	eventPicker *EventPicker
+	config          config.Config
+	apiServer       *grpcServer.ApiServer
+	db              contracts.PgDriver
+	eventPicker     *EventPicker
+	transportClient contracts.TransportClient
 }
 
 func NewApp(config config.Config) *Scheduler {
@@ -23,15 +29,31 @@ func NewApp(config config.Config) *Scheduler {
 }
 
 func (scheduler *Scheduler) Start() {
+	logger.Log.Info("service monk-scheduler is running")
 	dbDriver, err := monk_db_driver.NewDbDriver(scheduler.config)
 	if err != nil {
 		panic(err)
 	}
 	scheduler.db = dbDriver
 
-	exitChan := make(chan int)
 	onSend := make(chan []onSendMsg)
-	eventPicker := NewEventPicker(&exitChan, &onSend, dbDriver)
+
+	producer, err := scheduler.ConnectToTransportAsProducer()
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer func() {
+		if err := producer.Close(); err != nil {
+			logger.Log.Fatal(err.Error())
+		}
+	}()
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt)
+
+	eventPicker := NewEventPicker(&signals, &onSend, dbDriver)
 	scheduler.eventPicker = eventPicker
 	scheduler.eventPicker.Start()
 
@@ -47,6 +69,38 @@ func (scheduler *Scheduler) Start() {
 	if err != nil {
 		panic(err)
 	}
+
+	wg := sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range producer.Successes() {
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for err := range producer.Errors() {
+			logger.Log.Error(err.Error())
+		}
+	}()
+
+	time.Sleep(2 * time.Second)
+	producer.Input() <- &sarama.ProducerMessage{Topic: "on_send", Value: sarama.StringEncoder("hello mazafaka")}
+
+outer:
+	for {
+		select {
+		case <-signals:
+			apiServer.Stop()
+			producer.AsyncClose()
+			break outer
+		}
+	}
+
+	wg.Wait()
 
 	scheduler.apiServer = apiServer
 }
@@ -83,6 +137,17 @@ func (scheduler *Scheduler) CreateEvent(event *api.Event) (int, error) {
 	return id, nil
 }
 
+func (scheduler *Scheduler) ConnectToTransportAsProducer() (sarama.AsyncProducer, error) {
+	scheduler.transportClient = infrastructure.NewKafkaClient(scheduler.config)
+	producer, err := scheduler.transportClient.InitProducer()
+	if err != nil {
+		return nil, err
+	}
+
+	return producer, nil
+}
+
 func (scheduler *Scheduler) Stop() {
+	// TODO: implement norm stop mech
 	fmt.Println("STOP")
 }

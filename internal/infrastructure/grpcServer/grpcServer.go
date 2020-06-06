@@ -25,9 +25,16 @@ func NewGrpcServer(grpcEmitter *GrpcEmitter) (*ApiServer, error) {
 
 	apiServer.server = grpc.NewServer()
 	api.RegisterApiServer(apiServer.server, apiServer)
-	_ = apiServer.server.Serve(tcpConn)
+
+	go func() {
+		_ = apiServer.server.Serve(tcpConn)
+	}()
 
 	return &apiServer, nil
+}
+
+func (apiServer *ApiServer) Stop() {
+	apiServer.server.Stop()
 }
 
 func (s ApiServer) SendEvent(ctx context.Context, event *api.Event) (*api.EventResult, error) {

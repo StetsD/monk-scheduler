@@ -5,17 +5,18 @@ import (
 	"github.com/stetsd/monk-scheduler/internal/app/constants"
 	"github.com/stetsd/monk-scheduler/internal/app/contracts"
 	"github.com/stetsd/monk-scheduler/internal/infrastructure/logger"
+	"os"
 	"time"
 )
 
 type EventPicker struct {
 	onSend   *chan []onSendMsg
-	exitChan *chan int
+	exitChan *chan os.Signal
 	ticker   *time.Ticker
 	db       contracts.PgDriver
 }
 
-func NewEventPicker(exitChan *chan int, onSend *chan []onSendMsg, db contracts.PgDriver) *EventPicker {
+func NewEventPicker(exitChan *chan os.Signal, onSend *chan []onSendMsg, db contracts.PgDriver) *EventPicker {
 	return &EventPicker{
 		exitChan: exitChan,
 		onSend:   onSend,
@@ -56,16 +57,16 @@ func (ep *EventPicker) Pick() {
 
 func (ep *EventPicker) Start() {
 	ep.ticker = time.NewTicker(1 * time.Second)
+
 	go func() {
+	outer:
 		for {
 			select {
 			case <-ep.ticker.C:
 				ep.Pick()
-			case val := <-*ep.exitChan:
-				if val == 1 {
-					ep.Stop()
-					return
-				}
+			case <-*ep.exitChan:
+				ep.Stop()
+				break outer
 			}
 		}
 	}()
