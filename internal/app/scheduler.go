@@ -36,7 +36,7 @@ func (scheduler *Scheduler) Start() {
 	}
 	scheduler.db = dbDriver
 
-	onSend := make(chan []onSendMsg)
+	onSend := make(chan onSendMsg)
 
 	producer, err := scheduler.ConnectToTransportAsProducer()
 
@@ -87,12 +87,11 @@ func (scheduler *Scheduler) Start() {
 		}
 	}()
 
-	time.Sleep(2 * time.Second)
-	producer.Input() <- &sarama.ProducerMessage{Topic: "on_send", Value: sarama.StringEncoder("hello mazafaka")}
-
 outer:
 	for {
 		select {
+		case event := <-onSend:
+			producer.Input() <- &sarama.ProducerMessage{Topic: "on_send", Value: sarama.StringEncoder(onSendMarshaling(&event))}
 		case <-signals:
 			apiServer.Stop()
 			producer.AsyncClose()
@@ -107,13 +106,13 @@ outer:
 
 func (scheduler *Scheduler) CreateEvent(event *api.Event) (int, error) {
 	rows, err := scheduler.db.Query(`
-		INSERT INTO "Event" (title, dateStart, dateEnd, description, userId)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id;
+		INSERT INTO "Event" (title, dateStart, dateEnd, description, userId, email)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;
 	`,
 		event.Title,
 		time.Unix(event.DateStart.Seconds, 0).UTC().Format(time.RFC3339),
 		time.Unix(event.DateEnd.Seconds, 0).UTC().Format(time.RFC3339),
-		event.Description, event.UserId,
+		event.Description, event.UserId, event.Email,
 	)
 
 	if err != nil {
@@ -151,3 +150,5 @@ func (scheduler *Scheduler) Stop() {
 	// TODO: implement norm stop mech
 	fmt.Println("STOP")
 }
+
+// TODO:makefile create

@@ -16,6 +16,7 @@ message Event {
   google.protobuf.Timestamp dateEnd = 3;
   string description = 4;
   int64 userId = 5;
+  string email = 6;
 }
 
 message EventResult {
