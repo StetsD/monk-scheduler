@@ -1,0 +1,70 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  GO_SRC: go/src
+  GO_PKG: go/pkg
+  C_RESULT: ci-results
+  TEMP_DIR: /tmp/build
+
+image: docker:latest
+
+services:
+  - docker:dind
+
+test:
+  stage: test
+  image: $MONK_DOCKER_PRECOMPILED
+  coverage: '/All files\s*\|\s*([0-9.]+)/'
+  cache:
+    key: $CI_PIPELINE_ID
+    paths:
+      - $GO_SRC
+      - $GO_PKG
+      - $C_RESULT
+    policy: push
+  services:
+    - 'postgres:latest'
+  script:
+    - for i in $(printenv | cut -d '=' -f 1); do ENV_WORD=$(echo $i | cut -d '_' -f 1); if [ "$ENV_WORD" = "TEST" ]; then export ${i/TEST_/}="${!i}"; fi; done
+    - make protocomplile
+    - go get
+    - make lint
+    - make test
+    - mkdir -p $TEMP_DIR $GO_SRC $GO_PKG $C_RESULT
+    - cp -r $GOPATH/src $GO_SRC
+    - cp -r $GOPATH/pkg $GO_PKG
+    - cp -r ./* $TEMP_DIR
+    - mv $TEMP_DIR/* $C_RESULT
+  variables:
+    POSTGRES_USER: $TEST_POSTGRES_USER
+    POSTGRES_PASSWORD: $TEST_POSTGRES_PASSWORD
+
+build:
+  stage: build
+  cache:
+    key: $CI_PIPELINE_ID
+    paths:
+      - $GO_SRC
+      - $GO_PKG
+      - $C_RESULT
+    policy: pull
+  script:
+    - mkdir $TEMP_DIR
+    - mv $C_RESULT/* $TEMP_DIR
+    - rm -r ./*
+    - mv $TEMP_DIR/* ./
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker build --pull -t "$CI_REGISTRY_IMAGE" .
+    - docker push "$CI_REGISTRY_IMAGE"
+  only:
+    - master
+
+deploy:
+  stage: deploy
+  script:
+    - for i in $(printenv | cut -d '=' -f 1); do ENV_WORD=$(echo $i | cut -d '_' -f 1); if [ "$ENV_WORD" = "PROD" ]; then export ${i/PROD_/}="${!i}"; fi; done
+  only:
+    - master
